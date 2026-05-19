@@ -43,7 +43,6 @@ def calcular_edad_y_flag(d, m, y):
 # ==============================================================================
 def procesar_direccion(direccion_completa):
     partes = [p.strip() for p in direccion_completa.split(',')]
-    
     pais = partes[-1] if len(partes) > 0 else "Desconocido"
     
     if len(partes) >= 3:
@@ -66,15 +65,17 @@ def procesar_direccion(direccion_completa):
         
     return nombre_calle, numero_calle, ciudad_estado, pais
 
-
 # ==============================================================================
 # INTERFAZ WEB PRINCIPAL (STREAMLIT)
 # ==============================================================================
-st.set_page_config(page_title="ETL Evaluación 2", layout="wide")
+st.set_page_config(page_title="ETL Evaluación 2 - Versión 2.0", layout="wide")
 
 st.sidebar.title("Navegación")
 st.sidebar.markdown("Evaluación 2 - Arq. Datos")
 opcion_menu = st.sidebar.radio("Selecciona qué evaluar:", ["Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
+
+def obtener_tiempo():
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 # ------------------------------------------------------------------------------
 # PÁGINA: PORTAFOLIO 2
@@ -86,54 +87,56 @@ if opcion_menu == "Portafolio 2 (Famosos)":
     archivo_subido = st.file_uploader("Carga tu dataset de Famosos (.txt)", type=["txt"])
 
     if archivo_subido is not None:
-        contenido = archivo_subido.getvalue().decode("utf-8").splitlines()
-        registros, log_text, nombres_vistos = [], [], set()
+        contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        # Función rápida para obtener la hora exacta en cada segundo
-        def obtener_tiempo():
-            return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        log_text.append(f"[{obtener_tiempo()}] - INICIO: Procesando Famosos.")
+        # === VALIDADOR DE ARCHIVO ESTRICTO ===
+        # Exige que las líneas tengan el separador " - "
+        es_archivo_correcto = any(" - " in linea for linea in contenido[:15])
         
-        for linea in contenido:
-            if " - " in linea:
-                partes = linea.split(" - ")
-                if len(partes) >= 2:
-                    nombre_crudo = partes[int(0)]
-                    nombre = re.sub(r'^\d+\.\s*', '', nombre_crudo).strip()
-                    fecha_cruda = partes[int(1)].strip()
-                    
-                    if nombre not in nombres_vistos:
-                        nombres_vistos.add(nombre)
-                        d, m, y, fecha_norm = procesar_fecha(fecha_cruda)
-                        edad, flag = calcular_edad_y_flag(d, m, y)
+        if not es_archivo_correcto:
+            st.error("❌ **¡Archivo Incorrecto o Sin Formato!** El archivo que subiste no corresponde a los Famosos.")
+            st.info("💡 Por favor, sube un archivo válido que separe el nombre de la fecha con un guion (ej: DATOS2026-2.txt).")
+        else:
+            registros, log_text, nombres_vistos = [], [], set()
+            log_text.append(f"[{obtener_tiempo()}] - INICIO: Procesando Famosos.")
+            
+            for linea in contenido:
+                if " - " in linea:
+                    partes = linea.split(" - ")
+                    if len(partes) >= 2:
+                        nombre_crudo = partes[int(0)]
+                        nombre = re.sub(r'^\d+\.\s*', '', nombre_crudo).strip()
+                        fecha_cruda = partes[int(1)].strip()
                         
-                        # NUEVO: Agregamos la hora a la tabla
-                        registros.append({
-                            "Nombre": nombre, 
-                            "Fecha de Nacimiento": fecha_norm, 
-                            "Edad": edad, 
-                            "Cumpleaños": flag,
-                            "Hora_Procesamiento": obtener_tiempo()
-                        })
-                        # NUEVO: Cada fila del log tiene su propia hora
-                        log_text.append(f"[{obtener_tiempo()}] - Transformado: {nombre} | {fecha_norm}")
-                    else:
-                        log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre}")
+                        if nombre not in nombres_vistos:
+                            nombres_vistos.add(nombre)
+                            d, m, y, fecha_norm = procesar_fecha(fecha_cruda)
+                            edad, flag = calcular_edad_y_flag(d, m, y)
+                            
+                            registros.append({
+                                "Nombre": nombre, 
+                                "Fecha de Nacimiento": fecha_norm, 
+                                "Edad": edad, 
+                                "Cumpleaños": flag,
+                                "Hora_Procesamiento": obtener_tiempo()
+                            })
+                            log_text.append(f"[{obtener_tiempo()}] - Transformado: {nombre} | {fecha_norm}")
+                        else:
+                            log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre}")
 
-        log_text.append(f"[{obtener_tiempo()}] - FIN: {len(registros)} famosos procesados.")
-        
-        st.success(f"¡Listo! Se procesaron {len(registros)} famosos únicos.")
-        df = pd.DataFrame(registros)
-        st.dataframe(df, use_container_width=True) 
-        
-        col1, col2 = st.columns(2)
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Famosos')
-        
-        col1.download_button("📊 Descargar Excel", data=buffer.getvalue(), file_name="famosos_limpios.xlsx", mime="application/vnd.ms-excel")
-        col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name="log_famosos.log", mime="text/plain")
+            log_text.append(f"[{obtener_tiempo()}] - FIN: {len(registros)} famosos procesados.")
+            
+            st.success(f"¡Listo! Se procesaron {len(registros)} famosos únicos.")
+            df = pd.DataFrame(registros)
+            st.dataframe(df, use_container_width=True) 
+            
+            col1, col2 = st.columns(2)
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Famosos')
+            
+            col1.download_button("📊 Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
 
 # ------------------------------------------------------------------------------
 # PÁGINA: PORTAFOLIO 3
@@ -147,82 +150,83 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        lugares_data, georeferencias_data, direcciones_data = [], [], []
-        log_text, lugares_vistos = [], set()
-        id_contador = 1
+        # === VALIDADOR DE ARCHIVO ESTRICTO ===
+        # Exige que las líneas tengan el separador ";"
+        es_archivo_correcto = any(";" in linea for linea in contenido[:15])
         
-        # Función rápida para obtener la hora exacta en cada segundo
-        def obtener_tiempo():
-            return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-        log_text.append(f"[{obtener_tiempo()}] - INICIO: Creando Base Relacional.")
-        
-        for linea in contenido:
-            if ";" in linea:
-                partes = linea.split(";")
-                if "Nombre del lugar" in partes[int(0)]:
-                    continue
-                    
-                if len(partes) >= 3:
-                    nombre_lugar = partes[int(0)].strip()
-                    direccion_completa = partes[int(1)].strip()
-                    coordenadas = partes[int(2)].strip()
-                    
-                    clave_unica = nombre_lugar + direccion_completa
-                    if clave_unica not in lugares_vistos:
-                        lugares_vistos.add(clave_unica)
-                        lugar_id = id_contador
-                        id_contador += 1
-                        
-                        # NUEVO: Tabla Lugares (Añadimos la hora a la tabla)
-                        lugares_data.append({
-                            "ID": lugar_id, 
-                            "Nombre_Lugar": nombre_lugar,
-                            "Hora_Procesamiento": obtener_tiempo()
-                        })
-                        
-                        # Tabla Georeferencias
-                        georeferencias_data.append({
-                            "ID": lugar_id, 
-                            "ID_Lugar": lugar_id, 
-                            "Coordenadas": coordenadas
-                        })
-                        
-                        # Tabla Direcciones
-                        nom_calle, num_calle, ciudad_prov, pais = procesar_direccion(direccion_completa)
-                        direcciones_data.append({
-                            "ID": lugar_id,
-                            "ID_Lugar": lugar_id,
-                            "nombre_calle": nom_calle,
-                            "numero_calle": num_calle,
-                            "ciudad_estado_provincia": ciudad_prov,
-                            "pais": pais
-                        })
-                        
-                        # NUEVO: Cada fila del log tiene su propia hora
-                        log_text.append(f"[{obtener_tiempo()}] - Dividido: {nombre_lugar} -> Convertido a 3 tablas relacionales.")
-                    else:
-                        log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre_lugar}")
-                        
-        log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
-        st.success(f"¡Magia realizada! Se encontraron {len(lugares_data)} lugares únicos y se dividieron en 3 tablas.")
-        
-        df_lugares = pd.DataFrame(lugares_data)
-        df_direcciones = pd.DataFrame(direcciones_data)
-        df_geo = pd.DataFrame(georeferencias_data)
-        
-        tab1, tab2, tab3 = st.tabs(["🏛️ Tabla: Lugares", "📍 Tabla: Direcciones", "🌍 Tabla: Georeferencias"])
-        with tab1: st.dataframe(df_lugares, use_container_width=True)
-        with tab2: st.dataframe(df_direcciones, use_container_width=True)
-        with tab3: st.dataframe(df_geo, use_container_width=True)
+        if not es_archivo_correcto:
+            st.error("❌ **¡Archivo Incorrecto o Sin Formato!** El archivo que subiste no corresponde a los Lugares.")
+            st.info("💡 Por favor, sube un archivo válido que separe la información con punto y coma (ej: DATOS2026-3.TXT).")
+        else:
+            lugares_data, georeferencias_data, direcciones_data = [], [], []
+            log_text, lugares_vistos = [], set()
+            id_contador = 1
             
-        col1, col2 = st.columns(2)
-        
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_lugares.to_excel(writer, index=False, sheet_name='Lugares')
-            df_direcciones.to_excel(writer, index=False, sheet_name='Direcciones')
-            df_geo.to_excel(writer, index=False, sheet_name='Georeferencias')
+            log_text.append(f"[{obtener_tiempo()}] - INICIO: Creando Base Relacional.")
             
-        col1.download_button("📊 Descargar Excel Relacional (3 Hojas)", data=buffer.getvalue(), file_name="BD_Lugares.xlsx", mime="application/vnd.ms-excel")
-        col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name="log_lugares.log", mime="text/plain")
+            for linea in contenido:
+                if ";" in linea:
+                    partes = linea.split(";")
+                    if "Nombre del lugar" in partes[int(0)]:
+                        continue
+                        
+                    if len(partes) >= 3:
+                        nombre_lugar = partes[int(0)].strip()
+                        direccion_completa = partes[int(1)].strip()
+                        coordenadas = partes[int(2)].strip()
+                        
+                        clave_unica = nombre_lugar + direccion_completa
+                        if clave_unica not in lugares_vistos:
+                            lugares_vistos.add(clave_unica)
+                            lugar_id = id_contador
+                            id_contador += 1
+                            
+                            lugares_data.append({
+                                "ID": lugar_id, 
+                                "Nombre_Lugar": nombre_lugar,
+                                "Hora_Procesamiento": obtener_tiempo()
+                            })
+                            
+                            georeferencias_data.append({
+                                "ID": lugar_id, 
+                                "ID_Lugar": lugar_id, 
+                                "Coordenadas": coordenadas
+                            })
+                            
+                            nom_calle, num_calle, ciudad_prov, pais = procesar_direccion(direccion_completa)
+                            direcciones_data.append({
+                                "ID": lugar_id,
+                                "ID_Lugar": lugar_id,
+                                "nombre_calle": nom_calle,
+                                "numero_calle": num_calle,
+                                "ciudad_estado_provincia": ciudad_prov,
+                                "pais": pais
+                            })
+                            
+                            log_text.append(f"[{obtener_tiempo()}] - Dividido: {nombre_lugar} -> Convertido a 3 tablas relacionales.")
+                        else:
+                            log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre_lugar}")
+                            
+            log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
+            
+            st.success(f"¡Magia realizada! Se encontraron {len(lugares_data)} lugares únicos y se dividieron en 3 tablas.")
+            
+            df_lugares = pd.DataFrame(lugares_data)
+            df_direcciones = pd.DataFrame(direcciones_data)
+            df_geo = pd.DataFrame(georeferencias_data)
+            
+            tab1, tab2, tab3 = st.tabs(["🏛️ Tabla: Lugares", "📍 Tabla: Direcciones", "🌍 Tabla: Georeferencias"])
+            with tab1: st.dataframe(df_lugares, use_container_width=True)
+            with tab2: st.dataframe(df_direcciones, use_container_width=True)
+            with tab3: st.dataframe(df_geo, use_container_width=True)
+                
+            col1, col2 = st.columns(2)
+            
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_lugares.to_excel(writer, index=False, sheet_name='Lugares')
+                df_direcciones.to_excel(writer, index=False, sheet_name='Direcciones')
+                df_geo.to_excel(writer, index=False, sheet_name='Georeferencias')
+                
+            col1.download_button("📊 Descargar Excel Relacional (3 Hojas)", data=buffer.getvalue(), file_name=f"BD_Lugares_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
