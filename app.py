@@ -82,8 +82,8 @@ if opcion_menu == "Portafolio 2 (Famosos)":
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        # Validacion por contenido: Busca bloques de 4 digitos consecutivos (anos)
-        es_archivo_correcto = any(re.search(r'\d{4}', linea) for linea in contenido[:15])
+  # Validacion inteligente mejorada: Busca un guion seguido de numeros y bloquea archivos con punto y coma (;)
+        es_archivo_correcto = any(re.search(r' - .*\d', linea) for linea in contenido[:15]) and not any(";" in linea for linea in contenido[:15])
         
         if not es_archivo_correcto:
             st.error("Error: Archivo incorrecto. No se detectaron fechas o anos.")
