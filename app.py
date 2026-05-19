@@ -4,9 +4,7 @@ import datetime
 import re
 import io
 
-# ==============================================================================
-# FUNCIONES PORTAFOLIO 2 (FAMOSOS)
-# ==============================================================================
+# Procesamiento de fechas para Portafolio 2
 def procesar_fecha(fecha_str):
     fecha_str = fecha_str.lower().strip()
     es_ac = 'a.c.' in fecha_str 
@@ -30,17 +28,16 @@ def procesar_fecha(fecha_str):
     if y < 0: fecha_chilena += " a.C."
     return d, m, y, fecha_chilena
 
+# Calculo de edad e indicador de cumpleanos
 def calcular_edad_y_flag(d, m, y):
     hoy = datetime.datetime.now()
     edad = hoy.year - y
     if hoy.month < m or (hoy.month == m and hoy.day < d):
         edad -= 1
-    flag_cumple = "🎉 Sí" if (hoy.month == m and hoy.day == d) else "No"
+    flag_cumple = "Si" if (hoy.month == m and hoy.day == d) else "No"
     return edad, flag_cumple
 
-# ==============================================================================
-# FUNCIONES PORTAFOLIO 3 (LUGARES Y 3 TABLAS)
-# ==============================================================================
+# Procesamiento de direcciones para Portafolio 3
 def procesar_direccion(direccion_completa):
     partes = [p.strip() for p in direccion_completa.split(',')]
     pais = partes[-1] if len(partes) > 0 else "Desconocido"
@@ -65,37 +62,32 @@ def procesar_direccion(direccion_completa):
         
     return nombre_calle, numero_calle, ciudad_estado, pais
 
-# ==============================================================================
-# INTERFAZ WEB PRINCIPAL (STREAMLIT)
-# ==============================================================================
-st.set_page_config(page_title="ETL Evaluación 2 - Versión 2.0", layout="wide")
+# Configuracion principal de la interfaz web
+st.set_page_config(page_title="ETL Evaluacion 2 - Version 2.0", layout="wide")
 
-st.sidebar.title("Navegación")
-st.sidebar.markdown("Evaluación 2 - Arq. Datos")
-opcion_menu = st.sidebar.radio("Selecciona qué evaluar:", ["Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
+st.sidebar.title("Navegacion")
+st.sidebar.markdown("Evaluacion 2 - Arq. Datos")
+opcion_menu = st.sidebar.radio("Selecciona que evaluar:", ["Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
 
 def obtener_tiempo():
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-# ------------------------------------------------------------------------------
-# PÁGINA: PORTAFOLIO 2
-# ------------------------------------------------------------------------------
+# Logica de procesamiento: Portafolio 2
 if opcion_menu == "Portafolio 2 (Famosos)":
-    st.title("Normalizador Automático - Portafolio 2")
-    st.markdown("**Limpieza de Fechas, Edades y Cumpleaños**")
+    st.title("Normalizador Automarico - Portafolio 2")
+    st.markdown("**Limpieza de Fechas, Edades y Cumpleanos**")
 
     archivo_subido = st.file_uploader("Carga tu dataset de Famosos (.txt)", type=["txt"])
 
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        # === VALIDADOR DE ARCHIVO ESTRICTO ===
-        # Exige que las líneas tengan el separador " - "
-        es_archivo_correcto = any(" - " in linea for linea in contenido[:15])
+        # Validacion por contenido: Busca bloques de 4 digitos consecutivos (anos)
+        es_archivo_correcto = any(re.search(r'\d{4}', linea) for linea in contenido[:15])
         
         if not es_archivo_correcto:
-            st.error("❌ **¡Archivo Incorrecto o Sin Formato!** El archivo que subiste no corresponde a los Famosos.")
-            st.info("💡 Por favor, sube un archivo válido que separe el nombre de la fecha con un guion (ej: DATOS2026-2.txt).")
+            st.error("Error: Archivo incorrecto. No se detectaron fechas o anos.")
+            st.info("Por favor, suba un archivo valido correspondiente a los Famosos (ej: DATOS2026-2.txt).")
         else:
             registros, log_text, nombres_vistos = [], [], set()
             log_text.append(f"[{obtener_tiempo()}] - INICIO: Procesando Famosos.")
@@ -117,7 +109,7 @@ if opcion_menu == "Portafolio 2 (Famosos)":
                                 "Nombre": nombre, 
                                 "Fecha de Nacimiento": fecha_norm, 
                                 "Edad": edad, 
-                                "Cumpleaños": flag,
+                                "Cumpleanos": flag,
                                 "Hora_Procesamiento": obtener_tiempo()
                             })
                             log_text.append(f"[{obtener_tiempo()}] - Transformado: {nombre} | {fecha_norm}")
@@ -126,7 +118,7 @@ if opcion_menu == "Portafolio 2 (Famosos)":
 
             log_text.append(f"[{obtener_tiempo()}] - FIN: {len(registros)} famosos procesados.")
             
-            st.success(f"¡Listo! Se procesaron {len(registros)} famosos únicos.")
+            st.success(f"Proceso finalizado. Se procesaron {len(registros)} famosos unicos.")
             df = pd.DataFrame(registros)
             st.dataframe(df, use_container_width=True) 
             
@@ -135,28 +127,25 @@ if opcion_menu == "Portafolio 2 (Famosos)":
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name='Famosos')
             
-            col1.download_button("📊 Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
+            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
 
-# ------------------------------------------------------------------------------
-# PÁGINA: PORTAFOLIO 3
-# ------------------------------------------------------------------------------
+# Logica de procesamiento: Portafolio 3
 elif opcion_menu == "Portafolio 3 (Lugares)":
     st.title("Sistema Relacional - Portafolio 3")
-    st.markdown("**División de Datos en 3 Tablas: Lugares, Georeferencias y Direcciones**")
+    st.markdown("**Division de Datos en 3 Tablas: Lugares, Georeferencias y Direcciones**")
     
     archivo_subido = st.file_uploader("Carga tu dataset de Lugares (.TXT)", type=["txt", "TXT"])
     
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        # === VALIDADOR DE ARCHIVO ESTRICTO ===
-        # Exige que las líneas tengan el separador ";"
-        es_archivo_correcto = any(";" in linea for linea in contenido[:15])
+        # Validacion por contenido: Busca coordenadas decimales (ej: 37.422, -122.084) o el encabezado del archivo
+        es_archivo_correcto = any("Nombre del lugar" in linea or re.search(r'-?\d+\.\d+\s*,\s*-?\d+\.\d+', linea) for linea in contenido[:15])
         
         if not es_archivo_correcto:
-            st.error("❌ **¡Archivo Incorrecto o Sin Formato!** El archivo que subiste no corresponde a los Lugares.")
-            st.info("💡 Por favor, sube un archivo válido que separe la información con punto y coma (ej: DATOS2026-3.TXT).")
+            st.error("Error: Archivo incorrecto. No se detectaron coordenadas geograficas.")
+            st.info("Por favor, suba un archivo valido correspondiente a los Lugares (ej: DATOS2026-3.TXT).")
         else:
             lugares_data, georeferencias_data, direcciones_data = [], [], []
             log_text, lugares_vistos = [], set()
@@ -203,19 +192,19 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
                                 "pais": pais
                             })
                             
-                            log_text.append(f"[{obtener_tiempo()}] - Dividido: {nombre_lugar} -> Convertido a 3 tablas relacionales.")
+                            log_text.append(f"[{obtener_tiempo()}] - Dividido: {nombre_lugar}.")
                         else:
                             log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre_lugar}")
                             
             log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
             
-            st.success(f"¡Magia realizada! Se encontraron {len(lugares_data)} lugares únicos y se dividieron en 3 tablas.")
+            st.success(f"Proceso finalizado. Se dividieron {len(lugares_data)} lugares unicos en 3 tablas.")
             
             df_lugares = pd.DataFrame(lugares_data)
             df_direcciones = pd.DataFrame(direcciones_data)
             df_geo = pd.DataFrame(georeferencias_data)
             
-            tab1, tab2, tab3 = st.tabs(["🏛️ Tabla: Lugares", "📍 Tabla: Direcciones", "🌍 Tabla: Georeferencias"])
+            tab1, tab2, tab3 = st.tabs(["Tabla: Lugares", "Tabla: Direcciones", "Tabla: Georeferencias"])
             with tab1: st.dataframe(df_lugares, use_container_width=True)
             with tab2: st.dataframe(df_direcciones, use_container_width=True)
             with tab3: st.dataframe(df_geo, use_container_width=True)
@@ -228,5 +217,5 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
                 df_direcciones.to_excel(writer, index=False, sheet_name='Direcciones')
                 df_geo.to_excel(writer, index=False, sheet_name='Georeferencias')
                 
-            col1.download_button("📊 Descargar Excel Relacional (3 Hojas)", data=buffer.getvalue(), file_name=f"BD_Lugares_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("📋 Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
+            col1.download_button("Descargar Excel Relacional", data=buffer.getvalue(), file_name=f"BD_Lugares_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
