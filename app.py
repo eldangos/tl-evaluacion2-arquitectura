@@ -74,7 +74,7 @@ def obtener_tiempo():
 
 # Logica de procesamiento: Portafolio 2
 if opcion_menu == "Portafolio 2 (Famosos)":
-    st.title("Normalizador Automarico - Portafolio 2")
+    st.title("Normalizador Automatico - Portafolio 2")
     st.markdown("**Limpieza de Fechas, Edades y Cumpleanos**")
 
     archivo_subido = st.file_uploader("Carga tu dataset de Famosos (.txt)", type=["txt"])
@@ -82,15 +82,14 @@ if opcion_menu == "Portafolio 2 (Famosos)":
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-  # Validacion inteligente mejorada: Busca un guion seguido de numeros y bloquea archivos con punto y coma (;)
+        # Validacion inteligente
         es_archivo_correcto = any(re.search(r' - .*\d', linea) for linea in contenido[:15]) and not any(";" in linea for linea in contenido[:15])
         
         if not es_archivo_correcto:
             st.error("Error: Archivo incorrecto. No se detectaron fechas o anos.")
             st.info("Por favor, suba un archivo valido correspondiente a los Famosos (ej: DATOS2026-2.txt).")
         else:
-            registros, log_text, nombres_vistos = [], [], set()
-            log_text.append(f"[{obtener_tiempo()}] - INICIO: Procesando Famosos.")
+            registros, ignorados, nombres_vistos = [], [], set()
             
             for linea in contenido:
                 if " - " in linea:
@@ -112,23 +111,41 @@ if opcion_menu == "Portafolio 2 (Famosos)":
                                 "Cumpleanos": flag,
                                 "Hora_Procesamiento": obtener_tiempo()
                             })
-                            log_text.append(f"[{obtener_tiempo()}] - Transformado: {nombre} | {fecha_norm}")
                         else:
-                            log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre}")
+                            ignorados.append(nombre)
 
-            log_text.append(f"[{obtener_tiempo()}] - FIN: {len(registros)} famosos procesados.")
-            
-            st.success(f"Proceso finalizado. Se procesaron {len(registros)} famosos unicos.")
             df = pd.DataFrame(registros)
+            
+            ordenar_az = st.checkbox("Ordenar datos alfabeticamente (A-Z) para la descarga")
+            if ordenar_az:
+                df = df.sort_values(by="Nombre").reset_index(drop=True)
+            
+            # Construccion del Log con el orden final
+            log_text = [f"[{obtener_tiempo()}] - INICIO: Procesando Famosos."]
+            if ordenar_az: log_text.append(f"[{obtener_tiempo()}] - ACCION: Datos ordenados alfabeticamente (A-Z).")
+            
+            for i in range(len(df)):
+                log_text.append(f"[{df.loc[i, 'Hora_Procesamiento']}] - Transformado: {df.loc[i, 'Nombre']} | {df.loc[i, 'Fecha de Nacimiento']}")
+                
+            for ign in ignorados:
+                log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {ign}")
+            log_text.append(f"[{obtener_tiempo()}] - FIN: {len(df)} famosos procesados.")
+            
+            # Construccion del TXT limpio (Tabla alineada)
+            txt_plano = df.to_string(index=False)
+
+            st.success(f"Proceso finalizado. Se procesaron {len(df)} famosos unicos.")
             st.dataframe(df, use_container_width=True) 
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False, sheet_name='Famosos')
             
-            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
+            fecha_str = datetime.datetime.now().strftime('%Y%m%d')
+            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{fecha_str}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("Descargar TXT Limpio", data=txt_plano, file_name=f"famosos_limpios_{fecha_str}.txt", mime="text/plain")
+            col3.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{fecha_str}.log", mime="text/plain")
 
 # Logica de procesamiento: Portafolio 3
 elif opcion_menu == "Portafolio 3 (Lugares)":
@@ -140,7 +157,7 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
         
-        # Validacion por contenido: Busca coordenadas decimales (ej: 37.422, -122.084) o el encabezado del archivo
+        # Validacion inteligente
         es_archivo_correcto = any("Nombre del lugar" in linea or re.search(r'-?\d+\.\d+\s*,\s*-?\d+\.\d+', linea) for linea in contenido[:15])
         
         if not es_archivo_correcto:
@@ -148,10 +165,8 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
             st.info("Por favor, suba un archivo valido correspondiente a los Lugares (ej: DATOS2026-3.TXT).")
         else:
             lugares_data, georeferencias_data, direcciones_data = [], [], []
-            log_text, lugares_vistos = [], set()
+            ignorados, lugares_vistos = [], set()
             id_contador = 1
-            
-            log_text.append(f"[{obtener_tiempo()}] - INICIO: Creando Base Relacional.")
             
             for linea in contenido:
                 if ";" in linea:
@@ -191,25 +206,41 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
                                 "ciudad_estado_provincia": ciudad_prov,
                                 "pais": pais
                             })
-                            
-                            log_text.append(f"[{obtener_tiempo()}] - Dividido: {nombre_lugar}.")
                         else:
-                            log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {nombre_lugar}")
+                            ignorados.append(nombre_lugar)
                             
-            log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
-            
-            st.success(f"Proceso finalizado. Se dividieron {len(lugares_data)} lugares unicos en 3 tablas.")
-            
             df_lugares = pd.DataFrame(lugares_data)
             df_direcciones = pd.DataFrame(direcciones_data)
             df_geo = pd.DataFrame(georeferencias_data)
+            
+            ordenar_az = st.checkbox("Ordenar tablas alfabeticamente (A-Z) para la descarga")
+            if ordenar_az:
+                df_lugares = df_lugares.sort_values(by="Nombre_Lugar").reset_index(drop=True)
+                df_direcciones = df_direcciones.sort_values(by="pais").reset_index(drop=True)
+            
+            # Construccion del Log con el orden final
+            log_text = [f"[{obtener_tiempo()}] - INICIO: Creando Base Relacional."]
+            if ordenar_az: log_text.append(f"[{obtener_tiempo()}] - ACCION: Tablas ordenadas alfabeticamente.")
+            
+            for i in range(len(df_lugares)):
+                log_text.append(f"[{df_lugares.loc[i, 'Hora_Procesamiento']}] - Dividido: {df_lugares.loc[i, 'Nombre_Lugar']}.")
+            for ign in ignorados:
+                log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {ign}")
+            log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
+            
+            # Construccion del TXT limpio amigable a la vista (Tablas alineadas)
+            txt_plano = "--- TABLA LUGARES ---\n" + df_lugares.to_string(index=False) + \
+                        "\n\n--- TABLA DIRECCIONES ---\n" + df_direcciones.to_string(index=False) + \
+                        "\n\n--- TABLA GEOREFERENCIAS ---\n" + df_geo.to_string(index=False)
+
+            st.success(f"Proceso finalizado. Se dividieron {len(df_lugares)} lugares unicos en 3 tablas.")
             
             tab1, tab2, tab3 = st.tabs(["Tabla: Lugares", "Tabla: Direcciones", "Tabla: Georeferencias"])
             with tab1: st.dataframe(df_lugares, use_container_width=True)
             with tab2: st.dataframe(df_direcciones, use_container_width=True)
             with tab3: st.dataframe(df_geo, use_container_width=True)
                 
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -217,5 +248,7 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
                 df_direcciones.to_excel(writer, index=False, sheet_name='Direcciones')
                 df_geo.to_excel(writer, index=False, sheet_name='Georeferencias')
                 
-            col1.download_button("Descargar Excel Relacional", data=buffer.getvalue(), file_name=f"BD_Lugares_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{datetime.datetime.now().strftime('%Y%m%d')}.log", mime="text/plain")
+            fecha_str = datetime.datetime.now().strftime('%Y%m%d')
+            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"BD_Lugares_{fecha_str}.xlsx", mime="application/vnd.ms-excel")
+            col2.download_button("Descargar TXT Limpio", data=txt_plano, file_name=f"BD_Lugares_{fecha_str}.txt", mime="text/plain")
+            col3.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{fecha_str}.log", mime="text/plain")
