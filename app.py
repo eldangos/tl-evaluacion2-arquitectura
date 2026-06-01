@@ -128,7 +128,7 @@ def normalizar_texto(texto, formato):
 st.set_page_config(page_title="ETL Evaluación 3- Versión 6.0", layout="wide")
 
 st.sidebar.title("Navegación")
-st.sidebar.markdown("**Evaluación 2 - Arq. Datos**")
+st.sidebar.markdown("**Evaluación 3- Arq. Datos**")
 st.sidebar.markdown("*Versión 6.0 (Control de Cambios)*") # Control de Versiones Visible
 opcion_menu = st.sidebar.radio("Selecciona qué evaluar:", ["Portafolio 1 (Comunas)", "Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
 
