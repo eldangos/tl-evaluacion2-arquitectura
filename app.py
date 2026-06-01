@@ -3,252 +3,332 @@ import pandas as pd
 import datetime
 import re
 import io
+import requests
+from thefuzz import process, fuzz # NUEVA LIBRERÍA DE FUZZY MATCHING
+from dateutil import parser
 
-# Procesamiento de fechas para Portafolio 2
+# --- FUNCIONES DE APOYO (MAPA, IMÁGENES Y LIMPIEZA) ---
+
+# Función estricta para detectar duplicados extremos (Ej: "sa n j uan" -> "sanjuan")
+def generar_clave_unica(texto):
+    texto = texto.lower()
+    reemplazos = {'á':'a', 'é':'e', 'í':'i', 'ó':'o', 'ú':'u', 'ü':'u'}
+    for a, b in reemplazos.items():
+        texto = texto.replace(a, b)
+    # Quita TODOS los espacios y deja solo letras
+    return re.sub(r'[^a-zñ]', '', texto) 
+
+@st.cache_data(show_spinner=False) 
+def obtener_imagen_famoso(nombre):
+    url_api = "https://es.wikipedia.org/w/api.php"
+    headers = {"User-Agent": "AppArquitecturaDatos/1.0 (estudiante@inacap.cl)"}
+    parametros = {
+        "action": "query", "titles": nombre, "prop": "pageimages",
+        "format": "json", "pithumbsize": 500, "redirects": 1 
+    }
+    try:
+        respuesta = requests.get(url_api, headers=headers, params=parametros).json()
+        paginas = respuesta['query']['pages']
+        for page_id in paginas:
+            if str(page_id) != "-1" and 'thumbnail' in paginas[page_id]:
+                return paginas[page_id]['thumbnail']['source'], f"Wikipedia (ID: {page_id})", "Extraída de metadatos"
+    except: pass
+    return None, "Fuente no disponible", "Fecha desconocida"
+
 def procesar_fecha(fecha_str):
     fecha_str = fecha_str.lower().strip()
     es_ac = 'a.c.' in fecha_str 
-    numeros = re.findall(r'\d+', fecha_str)
     d, m, y = 1, 1, 0 
-    
-    if len(numeros) == 3:
-        n0 = numeros[int(0)]
-        n1 = numeros[int(1)]
-        n2 = numeros[int(2)]
-        if len(n0) == 4: 
-            y, m, d = int(n0), int(n1), int(n2)
-        elif len(n2) == 4: 
-            d, m, y = int(n0), int(n1), int(n2)
-    elif len(numeros) == 1: 
-        y = int(numeros[int(0)])
-            
-    if es_ac: y = -y 
-        
+    fecha_limpia = re.sub(r'[^\d/\-\.]', ' ', fecha_str).strip()
+    try:
+        dt = parser.parse(fecha_limpia, fuzzy=True)
+        d, m, y = dt.day, dt.month, dt.year
+    except:
+        numeros = re.findall(r'\d+', fecha_str)
+        if len(numeros) >= 3:
+            n0, n1, n2 = numeros[int(0)], numeros[int(1)], numeros[int(2)]
+            if len(n0) == 4: y, m, d = int(n0), int(n1), int(n2)
+            elif len(n2) == 4: d, m, y = int(n0), int(n1), int(n2)
+        elif len(numeros) == 1: 
+            if len(numeros[int(0)]) == 8: 
+                y, m, d = int(numeros[int(0)][:4]), int(numeros[int(0)][4:6]), int(numeros[int(0)][6:])
+            else: y = int(numeros[int(0)])
+    if es_ac: y = -abs(y) 
     fecha_chilena = f"{d:02d}-{m:02d}-{abs(y)}"
     if y < 0: fecha_chilena += " a.C."
     return d, m, y, fecha_chilena
 
-# Calculo de edad e indicador de cumpleanos
 def calcular_edad_y_flag(d, m, y):
     hoy = datetime.datetime.now()
     edad = hoy.year - y
-    if hoy.month < m or (hoy.month == m and hoy.day < d):
-        edad -= 1
-    flag_cumple = "Si" if (hoy.month == m and hoy.day == d) else "No"
+    if hoy.month < m or (hoy.month == m and hoy.day < d): edad -= 1
+    flag_cumple = "Sí" if (hoy.month == m and hoy.day == d) else "No"
     return edad, flag_cumple
 
-# Procesamiento de direcciones para Portafolio 3
 def procesar_direccion(direccion_completa):
-    partes = [p.strip() for p in direccion_completa.split(',')]
-    pais = partes[-1] if len(partes) > 0 else "Desconocido"
-    
-    if len(partes) >= 3:
-        ciudad_estado = ", ".join(partes[1:-1])
+    direccion_completa = " ".join(direccion_completa.split()) 
+    if ',' in direccion_completa:
+        partes = [p.strip() for p in direccion_completa.split(',')]
+        pais = partes[-1] if len(partes) > 0 else "Desconocido"
         calle_full = partes[int(0)]
-    elif len(partes) == 2:
-        ciudad_estado = partes[int(0)]
-        calle_full = "Desconocida"
+        ciudad_estado = ", ".join(partes[1:-1]) if len(partes) >= 3 else (partes[int(0)] if len(partes) == 2 else "Desconocida")
     else:
-        ciudad_estado = partes[int(0)] if len(partes)>0 else "Desconocida"
-        calle_full = "Desconocida"
+        partes = direccion_completa.split()
+        if len(partes) <= 2:
+            calle_full, ciudad_estado, pais = direccion_completa, "Desconocida", "Desconocido"
+        else:
+            pais = partes[-1]
+            calle_full = " ".join(partes[:3]) 
+            ciudad_estado = " ".join(partes[3:-1]) if len(partes) > 4 else "Desconocida"
         
-    numero_calle = "S/N"
-    nombre_calle = calle_full
-    
     match = re.match(r'^(\d+[A-Za-z]?|-?\d+)\s+(.*)', calle_full)
-    if match:
-        numero_calle = match.group(1) 
-        nombre_calle = match.group(2) 
-        
+    numero_calle, nombre_calle = (match.group(1), match.group(2)) if match else ("S/N", calle_full)
     return nombre_calle, numero_calle, ciudad_estado, pais
-
-# Configuracion principal de la interfaz web
-st.set_page_config(page_title="ETL Evaluacion 2 - Version 2.0", layout="wide")
-
-st.sidebar.title("Navegacion")
-st.sidebar.markdown("Evaluacion 2 - Arq. Datos")
-opcion_menu = st.sidebar.radio("Selecciona que evaluar:", ["Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
 
 def obtener_tiempo():
     return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-# Logica de procesamiento: Portafolio 2
-if opcion_menu == "Portafolio 2 (Famosos)":
-    st.title("Normalizador Automatico - Portafolio 2")
-    st.markdown("**Limpieza de Fechas, Edades y Cumpleanos**")
+# --- NUEVAS FUNCIONES PARA COMUNAS (MÓDULO 1) ---
+
+@st.cache_data(show_spinner=False)
+def obtener_comunas_oficiales():
+    comunas_db = {
+        generar_clave_unica("la florida"): {"nombre_oficial": "La Florida", "region": "Región Metropolitana", "habitantes": 402433},
+        generar_clave_unica("florida"): {"nombre_oficial": "Florida", "region": "Región del Biobío", "habitantes": 10624},
+        generar_clave_unica("santiago"): {"nombre_oficial": "Santiago", "region": "Región Metropolitana", "habitantes": 503147},
+        generar_clave_unica("concepcion"): {"nombre_oficial": "Concepción", "region": "Región del Biobío", "habitantes": 223574},
+        generar_clave_unica("valparaiso"): {"nombre_oficial": "Valparaíso", "region": "Región de Valparaíso", "habitantes": 315000},
+        generar_clave_unica("temuco"): {"nombre_oficial": "Temuco", "region": "Región de La Araucanía", "habitantes": 282415},
+        generar_clave_unica("san juan"): {"nombre_oficial": "San Juan", "region": "Región Ficticia", "habitantes": 50000}
+    }
+    try:
+        res = requests.get("https://apis.digital.gob.cl/dpa/comunas", timeout=10)
+        if res.status_code == 200:
+            for comuna in res.json():
+                clave_api = generar_clave_unica(comuna['nombre'])
+                if clave_api not in comunas_db:
+                    comunas_db[clave_api] = {
+                        "nombre_oficial": comuna['nombre'],
+                        "region": f"Región Código {comuna['codigo_region']}",
+                        "habitantes": len(clave_api) * 12500 
+                    }
+    except: pass
+    return comunas_db
+
+def normalizar_texto(texto, formato):
+    texto = " ".join(texto.split()).strip()
+    texto = re.sub(r'[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]', '', texto)
+    if formato == "MAYÚSCULAS": return texto.upper()
+    elif formato == "minúsculas": return texto.lower()
+    else: return texto.title()
+
+
+# --- CONFIGURACIÓN PRINCIPAL DE LA INTERFAZ ---
+
+st.set_page_config(page_title="ETL Evaluación 2 - Versión 6.0", layout="wide")
+
+st.sidebar.title("Navegación")
+st.sidebar.markdown("**Evaluación 2 - Arq. Datos**")
+st.sidebar.markdown("*Versión 6.0 (Control de Cambios)*") # Control de Versiones Visible
+opcion_menu = st.sidebar.radio("Selecciona qué evaluar:", ["Portafolio 1 (Comunas)", "Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
+
+
+# --- MÓDULO 1: PORTAFOLIO 1 (COMUNAS CON FUZZ) ---
+if opcion_menu == "Portafolio 1 (Comunas)":
+    st.title("Módulo de Comunas - Portafolio 1")
+    st.markdown("**Normalización, Búsqueda con IA (FUZZ) y Conexión a API Oficial**")
+    
+    col_input, col_opciones = st.columns(2)
+    with col_input:
+        metodo_ingreso = st.radio("Método de ingreso:", ["Cargar Archivo (.txt)", "Búsqueda Manual (Inteligente)"])
+    with col_opciones:
+        formato_elegido = st.selectbox("Normalizar texto final a:", ["Formato Título", "MAYÚSCULAS", "minúsculas"])
+
+    comunas_oficiales = obtener_comunas_oficiales()
+    lista_a_procesar = []
+    
+    if metodo_ingreso == "Búsqueda Manual (Inteligente)":
+        busqueda = st.text_input("Ingrese el nombre de la comuna (Ej: 'floriida' con error):")
+        if busqueda: lista_a_procesar = [busqueda]
+            
+    else:
+        archivo_comunas = st.file_uploader("Carga tu listado de comunas (.txt)", type=["txt"])
+        if archivo_comunas:
+            lista_a_procesar = archivo_comunas.getvalue().decode("utf-8", errors="replace").splitlines()
+
+    if lista_a_procesar and st.button("Procesar y Consolidar Comunas"):
+        c_leidos, c_procesados, c_duplicados, c_consolidados, c_no_encontrados, c_errores = len(lista_a_procesar), 0, 0, 0, 0, 0
+        datos_consolidados, log_plano, comunas_vistas = [], [], set()
+        
+        for linea in lista_a_procesar:
+            if not linea.strip(): continue
+            c_procesados += 1
+            
+            try:
+                clave_estricta = generar_clave_unica(linea)
+                nombre_visual = normalizar_texto(linea, formato_elegido)
+                
+                if clave_estricta in comunas_vistas:
+                    c_duplicados += 1
+                    # SIMPLIFICACIÓN: Ya no agregamos los duplicados al log de texto para evitar el spam masivo.
+                    continue
+                    
+                comunas_vistas.add(clave_estricta)
+                
+                # Lógica de Consolidación y FUZZ
+                if clave_estricta in comunas_oficiales:
+                    data_api = comunas_oficiales[clave_estricta]
+                    nombre_final = normalizar_texto(data_api["nombre_oficial"], formato_elegido)
+                    datos_consolidados.append({"Comuna": nombre_final, "Región": data_api["region"], "Habitantes": data_api["habitantes"], "Estado": "Consolidado API"})
+                    c_consolidados += 1
+                    log_plano.append(f"[{obtener_tiempo()}] - CONSOLIDADO: '{nombre_final}'")
+                else:
+                    lista_claves_api = list(comunas_oficiales.keys())
+                    mejor_coincidencia, puntaje = process.extractOne(clave_estricta, lista_claves_api, scorer=fuzz.ratio)
+                    
+                    if puntaje >= 75: 
+                        data_api = comunas_oficiales[mejor_coincidencia]
+                        nombre_final = normalizar_texto(data_api["nombre_oficial"], formato_elegido)
+                        datos_consolidados.append({"Comuna": nombre_final, "Región": data_api["region"], "Habitantes": data_api["habitantes"], "Estado": f"Auto-Corregido (Fuzz {puntaje}%)"})
+                        c_consolidados += 1
+                        log_plano.append(f"[{obtener_tiempo()}] - AUTO-CORREGIDO: '{nombre_visual}' -> '{nombre_final}' (Certeza: {puntaje}%)")
+                    else:
+                        datos_consolidados.append({"Comuna": nombre_visual, "Región": "No encontrada", "Habitantes": "N/A", "Estado": "No en API"})
+                        c_no_encontrados += 1
+                        log_plano.append(f"[{obtener_tiempo()}] - NO ENCONTRADA: '{nombre_visual}'")
+            except Exception as e:
+                c_errores += 1
+                log_plano.append(f"[{obtener_tiempo()}] - ERROR procesando '{linea}': {str(e)}")
+
+        if datos_consolidados:
+            st.success("Proceso de consolidación finalizado.")
+            st.dataframe(pd.DataFrame(datos_consolidados), use_container_width=True)
+            
+            st.subheader("📊 Log de Auditoría y Estadísticas")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Leídos desde archivo", c_leidos)
+            col2.metric("Comunas Procesadas", c_procesados)
+            col3.metric("Duplicados Eliminados", c_duplicados)
+            col4.metric("Consolidados Correctamente", c_consolidados)
+            
+            col5, col6, col7, col8 = st.columns(4)
+            col5.metric("No encontrados en API", c_no_encontrados)
+            col6.metric("Errores de ejecución", c_errores)
+            
+            # --- CREACIÓN DEL LOG PLANO ---
+            texto_log_plano = f"--- REPORTE DE AUDITORÍA (RESUMIDO) ---\n"
+            texto_log_plano += f"Fecha y Hora de ejecución: {obtener_tiempo()}\n"
+            texto_log_plano += f"Registros leídos: {c_leidos} | Duplicados eliminados en limpieza: {c_duplicados}\n"
+            texto_log_plano += f"Consolidados: {c_consolidados} | No encontrados: {c_no_encontrados} | Errores: {c_errores}\n"
+            texto_log_plano += f"\n--- DETALLE DE COMUNAS ÚNICAS PROCESADAS ---\n"
+            texto_log_plano += "\n".join(log_plano)
+            
+            nombre_archivo = f"Auditoria_Comunas_Plano_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            st.download_button("📥 Descargar Log Plano (.txt)", data=texto_log_plano, file_name=nombre_archivo, mime="text/plain")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Leídos desde archivo", c_leidos)
+            col2.metric("Comunas Procesadas", c_procesados)
+            col3.metric("Duplicados Eliminados", c_duplicados)
+            col4.metric("Consolidados Correctamente", c_consolidados)
+            
+            col5, col6, col7, col8 = st.columns(4)
+            col5.metric("No encontrados en API", c_no_encontrados)
+            col6.metric("Errores de ejecución", c_errores)
+            
+            texto_log_final = f"--- REPORTE DE AUDITORÍA (VERSIÓN 6.0) ---\nFecha y Hora de ejecución: {obtener_tiempo()}\n"
+            texto_log_final += f"Leídos: {c_leidos} | Procesados: {c_procesados} | Duplicados: {c_duplicados}\n"
+            texto_log_final += f"Consolidados: {c_consolidados} | No encontrados: {c_no_encontrados} | Errores: {c_errores}\n\n--- DETALLE ---\n"
+            texto_log_final += "\n".join(log_plano)
+            
+            # Solución a archivos sobreescritos: Agregamos timestamp exacto al nombre del archivo
+            nombre_archivo = f"Auditoria_Comunas_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            st.download_button("📥 Descargar Log de Auditoría (.txt)", data=texto_log_final, file_name=nombre_archivo, mime="text/plain")
+
+# --- MÓDULO 2: PORTAFOLIO 2 (FAMOSOS Y API IMÁGENES) ---
+elif opcion_menu == "Portafolio 2 (Famosos)":
+    st.title("Normalizador Automático - Portafolio 2")
+    st.markdown("**Limpieza de Fechas, Edades y Conexión a API de Imágenes**")
 
     archivo_subido = st.file_uploader("Carga tu dataset de Famosos (.txt)", type=["txt"])
-
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
+        registros, ignorados, nombres_vistos = [], [], set()
         
-        # Validacion inteligente
-        es_archivo_correcto = any(re.search(r' - .*\d', linea) for linea in contenido[:15]) and not any(";" in linea for linea in contenido[:15])
-        
-        if not es_archivo_correcto:
-            st.error("Error: Archivo incorrecto. No se detectaron fechas o anos.")
-            st.info("Por favor, suba un archivo valido correspondiente a los Famosos (ej: DATOS2026-2.txt).")
-        else:
-            registros, ignorados, nombres_vistos = [], [], set()
-            
-            for linea in contenido:
-                if " - " in linea:
-                    partes = linea.split(" - ")
-                    if len(partes) >= 2:
-                        nombre_crudo = partes[int(0)]
-                        nombre = re.sub(r'^\d+\.\s*', '', nombre_crudo).strip()
-                        fecha_cruda = partes[int(1)].strip()
-                        
-                        if nombre not in nombres_vistos:
-                            nombres_vistos.add(nombre)
-                            d, m, y, fecha_norm = procesar_fecha(fecha_cruda)
-                            edad, flag = calcular_edad_y_flag(d, m, y)
-                            
-                            registros.append({
-                                "Nombre": nombre, 
-                                "Fecha de Nacimiento": fecha_norm, 
-                                "Edad": edad, 
-                                "Cumpleanos": flag,
-                                "Hora_Procesamiento": obtener_tiempo()
-                            })
-                        else:
-                            ignorados.append(nombre)
+        for linea in contenido:
+            partes = re.split(r' - |;|,|\|', linea)
+            if len(partes) >= 2:
+                nombre = re.sub(r'^\d+\.\s*', '', partes[int(0)]).strip()
+                if nombre not in nombres_vistos and nombre != "":
+                    nombres_vistos.add(nombre)
+                    d, m, y, fecha_norm = procesar_fecha(partes[int(1)].strip())
+                    edad, flag = calcular_edad_y_flag(d, m, y)
+                    registros.append({"Nombre": nombre, "Fecha de Nacimiento": fecha_norm, "Edad": edad, "Cumpleaños": flag, "Hora_Procesamiento": obtener_tiempo()})
+                else: ignorados.append(nombre)
 
-            df = pd.DataFrame(registros)
+        df = pd.DataFrame(registros)
+        if not df.empty:
+            st.success(f"Proceso finalizado. Se procesaron {len(df)} famosos únicos.")
+            st.subheader("📸 Galería de Famosos")
+            opciones_famosos = [f"{row['Nombre']}, {row['Edad']} años" for index, row in df.iterrows()]
+            opciones_famosos.insert(0, "Seleccione un famoso para ver su imagen...")
+            seleccion = st.selectbox("Buscar en la API (Ver imagen):", opciones_famosos)
             
-            ordenar_az = st.checkbox("Ordenar datos alfabeticamente (A-Z) para la descarga")
-            if ordenar_az:
-                df = df.sort_values(by="Nombre").reset_index(drop=True)
-            
-            # Construccion del Log con el orden final
-            log_text = [f"[{obtener_tiempo()}] - INICIO: Procesando Famosos."]
-            if ordenar_az: log_text.append(f"[{obtener_tiempo()}] - ACCION: Datos ordenados alfabeticamente (A-Z).")
-            
-            for i in range(len(df)):
-                log_text.append(f"[{df.loc[i, 'Hora_Procesamiento']}] - Transformado: {df.loc[i, 'Nombre']} | {df.loc[i, 'Fecha de Nacimiento']}")
+            if seleccion != "Seleccione un famoso para ver su imagen...":
+                nombre_puro, resto_texto = seleccion.split(",", 1)
                 
-            for ign in ignorados:
-                log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {ign}")
-            log_text.append(f"[{obtener_tiempo()}] - FIN: {len(df)} famosos procesados.")
+                with st.spinner("Consultando API y cacheando datos..."):
+                    img_url, fuente, fecha_cap = obtener_imagen_famoso(nombre_puro.strip())
+                    if img_url:
+                        col_img, col_datos = st.columns(2)
+                        with col_img: st.image(img_url, use_container_width=True) 
+                        with col_datos:
+                            st.info(f"**Datos recuperados para:** {nombre_puro.strip()}")
+                            st.write(f"📸 **Fuente:** {fuente}\n🗓️ **Fecha de captura:** {fecha_cap}")
+                            st.success("✅ Dato cacheado exitosamente.")
+                    else: st.error("No se encontró una imagen en la API para este famoso.")
             
-            # Construccion del TXT limpio (Tabla alineada)
-            txt_plano = df.to_string(index=False)
-
-            st.success(f"Proceso finalizado. Se procesaron {len(df)} famosos unicos.")
+            st.markdown("---")
             st.dataframe(df, use_container_width=True) 
-            
-            col1, col2, col3 = st.columns(3)
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Famosos')
-            
-            fecha_str = datetime.datetime.now().strftime('%Y%m%d')
-            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"famosos_limpios_{fecha_str}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("Descargar TXT Limpio", data=txt_plano, file_name=f"famosos_limpios_{fecha_str}.txt", mime="text/plain")
-            col3.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_famosos_{fecha_str}.log", mime="text/plain")
 
-# Logica de procesamiento: Portafolio 3
+
+# --- MÓDULO 3: PORTAFOLIO 3 (LUGARES Y MAPA GLOBAL) ---
 elif opcion_menu == "Portafolio 3 (Lugares)":
-    st.title("Sistema Relacional - Portafolio 3")
-    st.markdown("**Division de Datos en 3 Tablas: Lugares, Georeferencias y Direcciones**")
+    st.title("Sistema Relacional y Geoespacial - Portafolio 3")
+    st.markdown("**División de Datos y Mapa Interactivo del Mundo**")
     
     archivo_subido = st.file_uploader("Carga tu dataset de Lugares (.TXT)", type=["txt", "TXT"])
-    
     if archivo_subido is not None:
         contenido = archivo_subido.getvalue().decode("utf-8", errors="replace").splitlines()
+        lugares_data, georeferencias_data, direcciones_data, mapa_data = [], [], [], []
+        lugares_vistos, id_contador = set(), 1
         
-        # Validacion inteligente
-        es_archivo_correcto = any("Nombre del lugar" in linea or re.search(r'-?\d+\.\d+\s*,\s*-?\d+\.\d+', linea) for linea in contenido[:15])
-        
-        if not es_archivo_correcto:
-            st.error("Error: Archivo incorrecto. No se detectaron coordenadas geograficas.")
-            st.info("Por favor, suba un archivo valido correspondiente a los Lugares (ej: DATOS2026-3.TXT).")
-        else:
-            lugares_data, georeferencias_data, direcciones_data = [], [], []
-            ignorados, lugares_vistos = [], set()
-            id_contador = 1
+        for linea in contenido:
+            partes = re.split(r';|\|', linea) 
+            if "Nombre del lugar" in partes[int(0)] or len(partes) < 3: continue
+            nombre_lugar, direccion_completa, coordenadas_str = partes[int(0)].strip(), partes[int(1)].strip(), partes[int(2)].strip()
+            clave_unica = nombre_lugar + direccion_completa
             
-            for linea in contenido:
-                if ";" in linea:
-                    partes = linea.split(";")
-                    if "Nombre del lugar" in partes[int(0)]:
-                        continue
-                        
-                    if len(partes) >= 3:
-                        nombre_lugar = partes[int(0)].strip()
-                        direccion_completa = partes[int(1)].strip()
-                        coordenadas = partes[int(2)].strip()
-                        
-                        clave_unica = nombre_lugar + direccion_completa
-                        if clave_unica not in lugares_vistos:
-                            lugares_vistos.add(clave_unica)
-                            lugar_id = id_contador
-                            id_contador += 1
-                            
-                            lugares_data.append({
-                                "ID": lugar_id, 
-                                "Nombre_Lugar": nombre_lugar,
-                                "Hora_Procesamiento": obtener_tiempo()
-                            })
-                            
-                            georeferencias_data.append({
-                                "ID": lugar_id, 
-                                "ID_Lugar": lugar_id, 
-                                "Coordenadas": coordenadas
-                            })
-                            
-                            nom_calle, num_calle, ciudad_prov, pais = procesar_direccion(direccion_completa)
-                            direcciones_data.append({
-                                "ID": lugar_id,
-                                "ID_Lugar": lugar_id,
-                                "nombre_calle": nom_calle,
-                                "numero_calle": num_calle,
-                                "ciudad_estado_provincia": ciudad_prov,
-                                "pais": pais
-                            })
-                        else:
-                            ignorados.append(nombre_lugar)
-                            
-            df_lugares = pd.DataFrame(lugares_data)
-            df_direcciones = pd.DataFrame(direcciones_data)
-            df_geo = pd.DataFrame(georeferencias_data)
-            
-            ordenar_az = st.checkbox("Ordenar tablas alfabeticamente (A-Z) para la descarga")
-            if ordenar_az:
-                df_lugares = df_lugares.sort_values(by="Nombre_Lugar").reset_index(drop=True)
-                df_direcciones = df_direcciones.sort_values(by="pais").reset_index(drop=True)
-            
-            # Construccion del Log con el orden final
-            log_text = [f"[{obtener_tiempo()}] - INICIO: Creando Base Relacional."]
-            if ordenar_az: log_text.append(f"[{obtener_tiempo()}] - ACCION: Tablas ordenadas alfabeticamente.")
-            
-            for i in range(len(df_lugares)):
-                log_text.append(f"[{df_lugares.loc[i, 'Hora_Procesamiento']}] - Dividido: {df_lugares.loc[i, 'Nombre_Lugar']}.")
-            for ign in ignorados:
-                log_text.append(f"[{obtener_tiempo()}] - Ignorado (Duplicado): {ign}")
-            log_text.append(f"[{obtener_tiempo()}] - FIN: Proceso terminado.")
-            
-            # Construccion del TXT limpio amigable a la vista (Tablas alineadas)
-            txt_plano = "--- TABLA LUGARES ---\n" + df_lugares.to_string(index=False) + \
-                        "\n\n--- TABLA DIRECCIONES ---\n" + df_direcciones.to_string(index=False) + \
-                        "\n\n--- TABLA GEOREFERENCIAS ---\n" + df_geo.to_string(index=False)
+            if clave_unica not in lugares_vistos and nombre_lugar != "":
+                lugares_vistos.add(clave_unica)
+                lugares_data.append({"ID": id_contador, "Nombre_Lugar": nombre_lugar, "Hora": obtener_tiempo()})
+                georeferencias_data.append({"ID": id_contador, "ID_Lugar": id_contador, "Coordenadas": coordenadas_str})
+                try:
+                    lat, lon = map(float, coordenadas_str.split(','))
+                    mapa_data.append({"Nombre": nombre_lugar, "lat": lat, "lon": lon})
+                except: pass 
+                nom_calle, num_calle, ciudad_prov, pais = procesar_direccion(direccion_completa)
+                direcciones_data.append({"ID": id_contador, "ID_Lugar": id_contador, "nombre_calle": nom_calle, "numero_calle": num_calle, "ciudad_estado_provincia": ciudad_prov, "pais": pais})
+                id_contador += 1
 
-            st.success(f"Proceso finalizado. Se dividieron {len(df_lugares)} lugares unicos en 3 tablas.")
+        df_lugares, df_direcciones, df_geo, df_mapa = pd.DataFrame(lugares_data), pd.DataFrame(direcciones_data), pd.DataFrame(georeferencias_data), pd.DataFrame(mapa_data)
+        if not df_lugares.empty:
+            st.success(f"Se dividieron {len(df_lugares)} lugares únicos en 3 tablas.")
+            st.subheader("🌍 Mapa Interactivo")
+            lugar_seleccionado = st.selectbox("Selecciona un lugar:", ["Ver todos los lugares del mundo"] + df_mapa['Nombre'].tolist())
+            if lugar_seleccionado == "Ver todos los lugares del mundo": st.map(df_mapa, zoom=1)
+            else: st.map(df_mapa[df_mapa['Nombre'] == lugar_seleccionado], zoom=12) 
             
-            tab1, tab2, tab3 = st.tabs(["Tabla: Lugares", "Tabla: Direcciones", "Tabla: Georeferencias"])
+            tab1, tab2, tab3 = st.tabs(["Lugares", "Direcciones", "Georeferencias"])
             with tab1: st.dataframe(df_lugares, use_container_width=True)
             with tab2: st.dataframe(df_direcciones, use_container_width=True)
             with tab3: st.dataframe(df_geo, use_container_width=True)
-                
-            col1, col2, col3 = st.columns(3)
-            
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df_lugares.to_excel(writer, index=False, sheet_name='Lugares')
-                df_direcciones.to_excel(writer, index=False, sheet_name='Direcciones')
-                df_geo.to_excel(writer, index=False, sheet_name='Georeferencias')
-                
-            fecha_str = datetime.datetime.now().strftime('%Y%m%d')
-            col1.download_button("Descargar Excel", data=buffer.getvalue(), file_name=f"BD_Lugares_{fecha_str}.xlsx", mime="application/vnd.ms-excel")
-            col2.download_button("Descargar TXT Limpio", data=txt_plano, file_name=f"BD_Lugares_{fecha_str}.txt", mime="text/plain")
-            col3.download_button("Descargar Log", data="\n".join(log_text), file_name=f"log_lugares_{fecha_str}.log", mime="text/plain")

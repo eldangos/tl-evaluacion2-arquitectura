@@ -1,5 +1,8 @@
 streamlit
 pandas
+requests
+python-dateutil
+thefuzz
 openpyxl
 
 
@@ -7,3 +10,6 @@ openpyxl
 # pip install streamlit
 # pip install pandas
 # pip install openpyxl
+# pip install requests
+# pip install python-dateutil
+# pip install thefuzz
