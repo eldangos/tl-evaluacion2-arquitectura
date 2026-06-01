@@ -4,8 +4,10 @@ import datetime
 import re
 import io
 import requests
-from thefuzz import process, fuzz # NUEVA LIBRERÍA DE FUZZY MATCHING
+from thefuzz import process, fuzz
 from dateutil import parser
+import folium
+from streamlit_folium import st_folium
 
 # --- FUNCIONES DE APOYO (MAPA, IMÁGENES Y LIMPIEZA) ---
 
@@ -24,7 +26,7 @@ def obtener_imagen_famoso(nombre):
     headers = {"User-Agent": "AppArquitecturaDatos/1.0 (estudiante@inacap.cl)"}
     parametros = {
         "action": "query", "titles": nombre, "prop": "pageimages",
-        "format": "json", "pithumbsize": 500, "redirects": 1 
+        "format": "json", "pithumbsize": 200, "redirects": 1 
     }
     try:
         respuesta = requests.get(url_api, headers=headers, params=parametros).json()
@@ -102,6 +104,7 @@ def obtener_comunas_oficiales():
         generar_clave_unica("san juan"): {"nombre_oficial": "San Juan", "region": "Región Ficticia", "habitantes": 50000}
     }
     try:
+        # 10 segundos de paciencia para la API
         res = requests.get("https://apis.digital.gob.cl/dpa/comunas", timeout=10)
         if res.status_code == 200:
             for comuna in res.json():
@@ -125,15 +128,15 @@ def normalizar_texto(texto, formato):
 
 # --- CONFIGURACIÓN PRINCIPAL DE LA INTERFAZ ---
 
-st.set_page_config(page_title="ETL Evaluación 3- Versión 6.0", layout="wide")
+st.set_page_config(page_title="Evaluación 3 - Arquitectura de Datos", layout="wide")
 
 st.sidebar.title("Navegación")
-st.sidebar.markdown("**Evaluación 3- Arq. Datos**")
-st.sidebar.markdown("*Versión 6.0 (Control de Cambios)*") # Control de Versiones Visible
+st.sidebar.markdown("**Evaluación 3 - Arq. Datos**")
+st.sidebar.markdown("*Versión 7.0*") 
 opcion_menu = st.sidebar.radio("Selecciona qué evaluar:", ["Portafolio 1 (Comunas)", "Portafolio 2 (Famosos)", "Portafolio 3 (Lugares)"])
 
 
-# --- MÓDULO 1: PORTAFOLIO 1 (COMUNAS CON FUZZ) ---
+# --- MÓDULO 1: PORTAFOLIO 1 (COMUNAS) ---
 if opcion_menu == "Portafolio 1 (Comunas)":
     st.title("Módulo de Comunas - Portafolio 1")
     st.markdown("**Normalización, Búsqueda con IA (FUZZ) y Conexión a API Oficial**")
@@ -170,12 +173,10 @@ if opcion_menu == "Portafolio 1 (Comunas)":
                 
                 if clave_estricta in comunas_vistas:
                     c_duplicados += 1
-                    # SIMPLIFICACIÓN: Ya no agregamos los duplicados al log de texto para evitar el spam masivo.
-                    continue
+                    continue # Omitimos agregarlo al log para no hacer spam (Log Plano)
                     
                 comunas_vistas.add(clave_estricta)
                 
-                # Lógica de Consolidación y FUZZ
                 if clave_estricta in comunas_oficiales:
                     data_api = comunas_oficiales[clave_estricta]
                     nombre_final = normalizar_texto(data_api["nombre_oficial"], formato_elegido)
@@ -186,7 +187,7 @@ if opcion_menu == "Portafolio 1 (Comunas)":
                     lista_claves_api = list(comunas_oficiales.keys())
                     mejor_coincidencia, puntaje = process.extractOne(clave_estricta, lista_claves_api, scorer=fuzz.ratio)
                     
-                    if puntaje >= 75: 
+                    if puntaje >= 75: # Tolerancia relajada al 75%
                         data_api = comunas_oficiales[mejor_coincidencia]
                         nombre_final = normalizar_texto(data_api["nombre_oficial"], formato_elegido)
                         datos_consolidados.append({"Comuna": nombre_final, "Región": data_api["region"], "Habitantes": data_api["habitantes"], "Estado": f"Auto-Corregido (Fuzz {puntaje}%)"})
@@ -225,26 +226,8 @@ if opcion_menu == "Portafolio 1 (Comunas)":
             
             nombre_archivo = f"Auditoria_Comunas_Plano_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             st.download_button("📥 Descargar Log Plano (.txt)", data=texto_log_plano, file_name=nombre_archivo, mime="text/plain")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Leídos desde archivo", c_leidos)
-            col2.metric("Comunas Procesadas", c_procesados)
-            col3.metric("Duplicados Eliminados", c_duplicados)
-            col4.metric("Consolidados Correctamente", c_consolidados)
-            
-            col5, col6, col7, col8 = st.columns(4)
-            col5.metric("No encontrados en API", c_no_encontrados)
-            col6.metric("Errores de ejecución", c_errores)
-            
-            texto_log_final = f"--- REPORTE DE AUDITORÍA (VERSIÓN 6.0) ---\nFecha y Hora de ejecución: {obtener_tiempo()}\n"
-            texto_log_final += f"Leídos: {c_leidos} | Procesados: {c_procesados} | Duplicados: {c_duplicados}\n"
-            texto_log_final += f"Consolidados: {c_consolidados} | No encontrados: {c_no_encontrados} | Errores: {c_errores}\n\n--- DETALLE ---\n"
-            texto_log_final += "\n".join(log_plano)
-            
-            # Solución a archivos sobreescritos: Agregamos timestamp exacto al nombre del archivo
-            nombre_archivo = f"Auditoria_Comunas_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            st.download_button("📥 Descargar Log de Auditoría (.txt)", data=texto_log_final, file_name=nombre_archivo, mime="text/plain")
 
-# --- MÓDULO 2: PORTAFOLIO 2 (FAMOSOS Y API IMÁGENES) ---
+# --- MÓDULO 2: PORTAFOLIO 2 (FAMOSOS) ---
 elif opcion_menu == "Portafolio 2 (Famosos)":
     st.title("Normalizador Automático - Portafolio 2")
     st.markdown("**Limpieza de Fechas, Edades y Conexión a API de Imágenes**")
@@ -289,9 +272,13 @@ elif opcion_menu == "Portafolio 2 (Famosos)":
             
             st.markdown("---")
             st.dataframe(df, use_container_width=True) 
+            # --- BOTÓN DE DESCARGA LOG FAMOSOS ---
+            st.markdown("---")
+            texto_log_2 = f"--- LOG DE AUDITORÍA: FAMOSOS ---\nFecha de ejecución: {obtener_tiempo()}\nTotal de famosos procesados correctamente: {len(df)}\nFamosos duplicados/ignorados: {len(ignorados)}\n\nListado consolidado:\n" + "\n".join(df['Nombre'].tolist())
+            st.download_button("📥 Descargar Log de Famosos (.txt)", data=texto_log_2, file_name=f"Log_Famosos_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")
 
 
-# --- MÓDULO 3: PORTAFOLIO 3 (LUGARES Y MAPA GLOBAL) ---
+# --- MÓDULO 3: PORTAFOLIO 3 (LUGARES Y MAPA GLOBAL MEJORADO CON FOLIUM) ---
 elif opcion_menu == "Portafolio 3 (Lugares)":
     st.title("Sistema Relacional y Geoespacial - Portafolio 3")
     st.markdown("**División de Datos y Mapa Interactivo del Mundo**")
@@ -323,12 +310,32 @@ elif opcion_menu == "Portafolio 3 (Lugares)":
         df_lugares, df_direcciones, df_geo, df_mapa = pd.DataFrame(lugares_data), pd.DataFrame(direcciones_data), pd.DataFrame(georeferencias_data), pd.DataFrame(mapa_data)
         if not df_lugares.empty:
             st.success(f"Se dividieron {len(df_lugares)} lugares únicos en 3 tablas.")
-            st.subheader("🌍 Mapa Interactivo")
-            lugar_seleccionado = st.selectbox("Selecciona un lugar:", ["Ver todos los lugares del mundo"] + df_mapa['Nombre'].tolist())
-            if lugar_seleccionado == "Ver todos los lugares del mundo": st.map(df_mapa, zoom=1)
-            else: st.map(df_mapa[df_mapa['Nombre'] == lugar_seleccionado], zoom=12) 
+            st.subheader("🌍 Mapa Interactivo (Folium Avanzado)")
             
+            lugar_seleccionado = st.selectbox("Selecciona un lugar para viajar en el mapa:", ["Ver todos los lugares del mundo"] + df_mapa['Nombre'].tolist())
+            
+            # --- NUEVA LÓGICA DE MAPA INTERACTIVO FOLIUM ---
+            if lugar_seleccionado == "Ver todos los lugares del mundo":
+                # Mapa mundial centrado en coordenadas 0,0
+                mapa_avanzado = folium.Map(location=[0, 0], zoom_start=2)
+                for index, row in df_mapa.iterrows():
+                    folium.Marker([row['lat'], row['lon']], popup=row['Nombre'], tooltip="Clic para ver").add_to(mapa_avanzado)
+            else:
+                # Mapa centrado haciendo un "Viaje" al lugar específico
+                datos_lugar = df_mapa[df_mapa['Nombre'] == lugar_seleccionado].iloc[int(0)]
+                st.info(f"📍 **Viajando a:** {datos_lugar['Nombre']} | **Lat:** {datos_lugar['lat']} | **Lon:** {datos_lugar['lon']}")
+                
+                mapa_avanzado = folium.Map(location=[datos_lugar['lat'], datos_lugar['lon']], zoom_start=15)
+                folium.Marker([datos_lugar['lat'], datos_lugar['lon']], popup=datos_lugar['Nombre'], tooltip=datos_lugar['Nombre']).add_to(mapa_avanzado)
+
+            st_folium(mapa_avanzado, width=800, height=500)
+            
+            # Pestañas relacionales
             tab1, tab2, tab3 = st.tabs(["Lugares", "Direcciones", "Georeferencias"])
             with tab1: st.dataframe(df_lugares, use_container_width=True)
             with tab2: st.dataframe(df_direcciones, use_container_width=True)
             with tab3: st.dataframe(df_geo, use_container_width=True)
+            # --- BOTÓN DE DESCARGA LOG LUGARES ---
+            st.markdown("---")
+            texto_log_3 = f"--- LOG DE AUDITORÍA: LUGARES HISTÓRICOS ---\nFecha de ejecución: {obtener_tiempo()}\nTotal de lugares únicos procesados: {len(df_lugares)}\nSe generaron 3 tablas relacionales (Lugares, Direcciones y Georeferencias).\n\nListado de Lugares:\n" + "\n".join(df_lugares['Nombre_Lugar'].tolist())
+            st.download_button("📥 Descargar Log de Lugares (.txt)", data=texto_log_3, file_name=f"Log_Lugares_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")

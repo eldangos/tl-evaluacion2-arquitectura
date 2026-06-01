@@ -4,7 +4,8 @@ requests
 python-dateutil
 thefuzz
 openpyxl
-
+folium
+streamlit-folium
 
 # Para ejecutar este proyecto localmente, instale las siguientes librerías:
 # pip install streamlit
