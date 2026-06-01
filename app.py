@@ -125,7 +125,7 @@ def normalizar_texto(texto, formato):
 
 # --- CONFIGURACIÓN PRINCIPAL DE LA INTERFAZ ---
 
-st.set_page_config(page_title="ETL Evaluación 2 - Versión 6.0", layout="wide")
+st.set_page_config(page_title="ETL Evaluación 3- Versión 6.0", layout="wide")
 
 st.sidebar.title("Navegación")
 st.sidebar.markdown("**Evaluación 2 - Arq. Datos**")
